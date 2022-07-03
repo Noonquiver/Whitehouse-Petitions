@@ -14,24 +14,9 @@ class ViewController: UITableViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         
-        let urlString: String
-        
         navigationItem.rightBarButtonItem = UIBarButtonItem(title: "Credits", style: .plain, target: self, action: #selector(showCredits))
         
-        if navigationController?.tabBarItem.tag == 0 {
-            urlString = "https://www.hackingwithswift.com/samples/petitions-1.json"
-        } else {
-            urlString = "https://www.hackingwithswift.com/samples/petitions-2.json"
-        }
-        
-        if let url = URL(string: urlString) {
-            if let data = try? Data(contentsOf: url) {
-                parse(json: data)
-                return
-            }
-        }
-        
-        showError()
+        performSelector(inBackground: #selector(fetchJSON), with: nil)
     }
     
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
@@ -73,56 +58,68 @@ class ViewController: UITableViewController {
         navigationController?.pushViewController(viewController, animated: true)
     }
     
-    @objc func filterPetitions() {
-        var filter = UIAlertAction()
-        
-        DispatchQueue.global(qos: .userInitiated).async {
-            [weak self] in
-            self?.filteredPetitions.removeAll(keepingCapacity: true)
+    @objc func fetchJSON() {
+        let urlString: String
+                
+        if navigationController?.tabBarItem.tag == 0 {
+            urlString = "https://www.hackingwithswift.com/samples/petitions-1.json"
+        } else {
+            urlString = "https://www.hackingwithswift.com/samples/petitions-2.json"
         }
         
-        DispatchQueue.main.async {
-            [weak self] in
-            let alertController = UIAlertController(title: "Filter by title", message: "Please type the desired article title.", preferredStyle: .alert)
-            alertController.addTextField()
-            
-            filter = UIAlertAction(title: "Filter", style: .default) {
-                [weak self, weak alertController] _ in
-                guard let alertController = alertController else { return }
-                guard let filterWord = alertController.textFields?[0].text else { return }
-                
-                self?.filtered(using: filterWord)
+        if let url = URL(string: urlString) {
+            if let data = try? Data(contentsOf: url) {
+                parse(json: data)
+                return
             }
+        }
             
-            alertController.addAction(filter)
-            self?.present(alertController, animated: true)
+        performSelector(onMainThread: #selector(showError), with: nil, waitUntilDone: false)
+    }
+    
+    func parse(json: Data) {
+        let decoder = JSONDecoder()
+        
+        if let jsonPetitions = try? decoder.decode(Petitions.self, from: json) {
+            petitions = jsonPetitions.results
+            tableView.performSelector(onMainThread: #selector(UITableView.reloadData), with: nil, waitUntilDone: false)
+        } else {
+            performSelector(onMainThread: #selector(showError), with: nil, waitUntilDone: false)
         }
     }
     
+    @objc func filterPetitions() {
+        filteredPetitions.removeAll(keepingCapacity: true)
+        
+        let alertController = UIAlertController(title: "Filter by title", message: "Please type the desired article title.", preferredStyle: .alert)
+        alertController.addTextField()
+        
+        let filter = UIAlertAction(title: "Filter", style: .default) {
+            [weak self, weak alertController] _ in
+            guard let filterWord = alertController?.textFields?[0].text else { return }
+            
+            self?.filtered(using: filterWord)
+        }
+        
+        alertController.addAction(filter)
+        present(alertController, animated: true)
+    }
+    
     func filtered(using filterWord: String) {
-        DispatchQueue.global(qos: .userInitiated).async {
-            [weak self] in
-            guard let petitions = self?.petitions else { return }
-            
-            for petition in petitions {
-                if petition.title.lowercased().contains(filterWord.lowercased()) {
-                    self?.filteredPetitions.append(petition)
-                }
+        
+        for petition in petitions {
+            if petition.title.lowercased().contains(filterWord.lowercased()) {
+                filteredPetitions.append(petition)
             }
         }
-
-        DispatchQueue.main.async {
-            [weak self] in
-            guard let noArticleFound = self?.filteredPetitions.isEmpty else { return }
-            
-            if noArticleFound {
-                let alertController = UIAlertController(title: "No article found", message: "There's no article title that includes that word.", preferredStyle: .alert)
-                alertController.addAction(UIAlertAction(title: "Dismiss", style: .cancel))
-                self?.present(alertController, animated: true)
-            }
-
-            self?.tableView.reloadData()
+        
+        if filteredPetitions.isEmpty {
+            let alertController = UIAlertController(title: "No article found", message: "There's no article title that includes that word.", preferredStyle: .alert)
+            alertController.addAction(UIAlertAction(title: "Dismiss", style: .cancel))
+            present(alertController, animated: true)
         }
+
+        tableView.reloadData()
     }
     
     @objc func removeFilter() {
@@ -136,19 +133,9 @@ class ViewController: UITableViewController {
         present(alertController, animated: true)
     }
     
-    func parse(json: Data) {
-        let decoder = JSONDecoder()
-        
-        if let jsonPetitions = try? decoder.decode(Petitions.self, from: json) {
-            petitions = jsonPetitions.results
-            tableView.reloadData()
-        }
-    }
-    
-    func showError() {
+    @objc func showError() {
         let alertController = UIAlertController(title: "Loading error", message: "There was a problem loading the feed; please check your connection and try again.", preferredStyle: .alert)
         alertController.addAction(UIAlertAction(title: "Dismiss", style: .default))
         present(alertController, animated: true)
     }
 }
-
